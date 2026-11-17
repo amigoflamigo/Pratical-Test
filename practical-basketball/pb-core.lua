@@ -837,6 +837,30 @@ local DUNK_TIMEOUT = 0.9
 local LAYUP_RANGE = 13
 local LOST_GRACE = 0.3
 local SERVER_STEP = 1 / 60
+local serverStepWindow: { number } = {}
+local serverStepSeeded = false
+local function updateServerStep(dt: number)
+    if dt <= 0 or dt > 0.2 then return end
+    table.insert(serverStepWindow, dt)
+    if #serverStepWindow > 20 then
+        table.remove(serverStepWindow, 1)
+    end
+    if #serverStepWindow >= 5 then
+        local sorted = table.clone(serverStepWindow)
+        table.sort(sorted)
+        local half = math.ceil(#sorted / 2)
+        local sum = 0
+        for i = 1, half do sum += sorted[i] end
+        local measured = sum / half
+        local clamped = math.clamp(measured, 1/120, 1/30)
+        if serverStepSeeded then
+            SERVER_STEP += (clamped - SERVER_STEP) * 0.1
+        else
+            SERVER_STEP = clamped
+            serverStepSeeded = true
+        end
+    end
+end
 local STALL = 0.075
 
 local METERED: { [string]: boolean } = { Shooting = true, Dunking = true, ContactLayup = true, ClutchLayup = true }
@@ -1336,7 +1360,10 @@ function AutoGreen.plan(self: any, now: number)
         return
     end
     local remaining = (peak - level) / speed
-    local delay = remaining - math.min(self.FrameDt or 0, 1 / 60) * 0.5 - SERVER_STEP * 0.5 - Court.Ping * (read("PingComp") or 100) / 100 + (read("GreenOffset") or 0) / 1000 + (shot.Sloppy or 0) + self:bias(kind)
+    local realFrameDt = self.FrameDt or (1 / 60)
+    local pingSpike = math.max(0, Court.Ping - (Court.PingPrev or Court.Ping))
+    local pingBuffer = math.min(pingSpike * 0.5, 0.015)
+    local delay = remaining - realFrameDt * 0.5 - SERVER_STEP * 0.5 - Court.Ping * (read("PingComp") or 100) / 100 - pingBuffer + (read("GreenOffset") or 0) / 1000 + (shot.Sloppy or 0) + self:bias(kind)
     shot.Value = value
     shot.SampleAt = now
     shot.Speed = speed
@@ -3146,10 +3173,12 @@ local function samplePing(value: number)
     end
     low /= half
     if pingSeeded then
+        Court.PingPrev = Court.Ping
         Court.Ping += (low - Court.Ping) * PING_SMOOTH
     else
         pingSeeded = true
         Court.Ping = low
+        Court.PingPrev = low
     end
 end
 
@@ -6615,6 +6644,7 @@ return function(JsavvUI: any, reload: () -> (), Loader: any): Map?
         end
         local now = os.clock()
         local dt = if type(delta) == "number" then delta else 1 / 60
+        updateServerStep(dt)
         pcall(Court.refresh, now)
         if not autoGreen.HookBound and not autoGreen.Binding and now >= hookAt then
             local wanted = false
