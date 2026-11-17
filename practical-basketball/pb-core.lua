@@ -837,6 +837,32 @@ local DUNK_TIMEOUT = 0.9
 local LAYUP_RANGE = 13
 local LOST_GRACE = 0.3
 local SERVER_STEP = 1 / 91
+local _serverStepSamples: { number } = {}
+local _serverStepLast: number? = nil
+local _serverStepReady = false
+local function detectServerStep()
+    local ok, gt = pcall(function() return workspace.DistributedGameTime end)
+    if not ok or type(gt) ~= "number" then return end
+    local last = _serverStepLast
+    _serverStepLast = gt
+    if last == nil or gt <= last then return end
+    local delta = gt - last
+    -- ignore outliers (pauses, lag spikes)
+    if delta < 1/200 or delta > 1/20 then return end
+    local samples = _serverStepSamples
+    table.insert(samples, delta)
+    if #samples > 30 then table.remove(samples, 1) end
+    if #samples >= 10 and not _serverStepReady then
+        -- median of samples
+        local sorted = table.clone(samples)
+        table.sort(sorted)
+        local median = sorted[math.floor(#sorted / 2) + 1]
+        if median > 0 then
+            SERVER_STEP = median
+            _serverStepReady = true
+        end
+    end
+end
 local STALL = 0.075
 
 local METERED: { [string]: boolean } = { Shooting = true, Dunking = true, ContactLayup = true, ClutchLayup = true }
@@ -1338,7 +1364,8 @@ function AutoGreen.plan(self: any, now: number)
         return
     end
     local remaining = (peak - level) / speed
-    local delay = remaining - math.min(self.FrameDt or 0, 1 / 60) * 0.5 - SERVER_STEP * 0.5 - Court.Ping * (read("PingComp") or 100) / 100 + (read("GreenOffset") or 0) / 1000 + (shot.Sloppy or 0) + self:bias(kind)
+    local greenOffset = if read("AutoReleaseOffset") ~= false then Court.Ping * 1000 else (read("GreenOffset") or 0)
+    local delay = remaining - math.min(self.FrameDt or 0, 1 / 60) * 0.5 - SERVER_STEP * 0.5 - Court.Ping * (read("PingComp") or 100) / 100 + greenOffset / 1000 + (shot.Sloppy or 0) + self:bias(kind)
     shot.Value = value
     shot.SampleAt = now
     shot.Speed = speed
@@ -2501,6 +2528,7 @@ Config.PARENT = {
 Config.DEFAULTS = {
     AutoGreen = false,
     GreenOffset = 0,
+    AutoReleaseOffset = true,
     PingComp = 100,
     AutoCalibrate = true,
     SafeMode = false,
@@ -3135,10 +3163,11 @@ end
 local pingItem: any = nil
 local nextPing = 0
 local pingSeeded = false
-local PING_SMOOTH = 0.2
+local PING_SMOOTH_DOWN = 0.12  -- slow decay: stable baseline, don't chase low spikes
+local PING_SMOOTH_UP   = 0.45  -- fast rise: react quickly when ping increases
 
 local pingWindow: { number } = {}
-local PING_WINDOW = 6
+local PING_WINDOW = 10  -- wider window for a stable median baseline
 
 local function samplePing(value: number)
     local clamped = math.min(value, 0.6)
@@ -3146,19 +3175,18 @@ local function samplePing(value: number)
     if #pingWindow > PING_WINDOW then
         table.remove(pingWindow, 1)
     end
+    -- median of the window as the baseline (robust to spikes)
     local sorted = table.clone(pingWindow)
     table.sort(sorted)
-    local half = math.ceil(#sorted / 2)
-    local low = 0
-    for index = 1, half do
-        low += sorted[index]
-    end
-    low /= half
+    local median = sorted[math.floor(#sorted / 2) + 1]
+    -- use current raw sample if it's higher than the median — catch spikes immediately
+    local target = math.max(median, clamped)
     if pingSeeded then
-        Court.Ping += (low - Court.Ping) * PING_SMOOTH
+        local smooth = if target > Court.Ping then PING_SMOOTH_UP else PING_SMOOTH_DOWN
+        Court.Ping += (target - Court.Ping) * smooth
     else
         pingSeeded = true
-        Court.Ping = low
+        Court.Ping = target
     end
 end
 
@@ -3179,7 +3207,7 @@ local function updatePing(now: number)
     if now < nextPing then
         return
     end
-    nextPing = now + 0.25
+    nextPing = now + 0.1
     local ok, value = pcall(dataPing)
     if ok and type(value) == "number" and value == value and value > 0 then
         samplePing(value / 1000)
@@ -6048,6 +6076,7 @@ function Interface.build(ui: any, actions: { [string]: any }?)
                 Default = defaults.AutoGreen,
                 Keywords = "release perfect timing shoot",
                 Controls = {
+                    toggle("Auto Release Timing", "AutoReleaseOffset"),
                     slider("Release Timing", "GreenOffset", -60, 60, 1, milliseconds),
                 },
                 Advanced = {
@@ -6622,6 +6651,7 @@ return function(JsavvUI: any, reload: () -> (), Loader: any): Map?
         if not running then
             return
         end
+        pcall(detectServerStep)
         local now = os.clock()
         local dt = if type(delta) == "number" then delta else 1 / 60
         pcall(Court.refresh, now)
