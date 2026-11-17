@@ -1373,16 +1373,14 @@ function AutoGreen.plan(self: any, now: number)
         return
     end
     local remaining = (peak - level) / speed
-    local autoRelease = read("AutoReleaseOffset") ~= false
-    local pingComp = if autoRelease then 1 else (read("PingComp") or 100) / 100
-    local manualOffset = if autoRelease then 0 else (read("GreenOffset") or 0) / 1000
-    local pingValue = if autoRelease then Court.ReleasePing else Court.Ping
-    local delay = remaining - math.min(self.FrameDt or 0, 1 / 60) * 0.5 - SERVER_STEP - pingValue * pingComp + manualOffset + (shot.Sloppy or 0) + self:bias(kind)
+    local pingComp = (read("PingComp") or 100) / 100
+    local manualOffset = (read("GreenOffset") or 0) / 1000
+    local delay = remaining - math.min(self.FrameDt or 0, 1 / 60) * 0.5 - SERVER_STEP * 0.5 - Court.Ping * pingComp + manualOffset + (shot.Sloppy or 0) + self:bias(kind)
     if self.Tracing then
-        local leadMs = (math.min(self.FrameDt or 0, 1/60) * 0.5 + SERVER_STEP + pingValue * pingComp) * 1000
+        local leadMs = (math.min(self.FrameDt or 0, 1/60) * 0.5 + SERVER_STEP * 0.5 + Court.Ping * pingComp) * 1000
         self:trace(string.format(
-            "  plan ping=%.1fms relPing=%.1fms autoRelease=%s serverStep=%.2fms frameDt=%.2fms remaining=%.1fms lead=%.1fms bias=%.1fms delay=%.1fms N=%d speed=%.4f/s",
-            Court.Ping * 1000, Court.ReleasePing * 1000, tostring(autoRelease), SERVER_STEP * 1000,
+            "  plan ping=%.1fms relPing=%.1fms serverStep=%.2fms frameDt=%.2fms remaining=%.1fms lead=%.1fms bias=%.1fms delay=%.1fms N=%d speed=%.4f/s",
+            Court.Ping * 1000, Court.ReleasePing * 1000, SERVER_STEP * 1000,
             math.min(self.FrameDt or 0, 1/60) * 1000, remaining * 1000, leadMs,
             self:bias(kind) * 1000, delay * 1000, shot.N or 0, speed
         ))
@@ -1432,7 +1430,7 @@ function AutoGreen.bias(self: any, kind: string): number
     return if type(value) == "number" then value else 0
 end
 
-local CALIBRATION = { [1] = 0.018, [2] = 0.009, [3] = 0.0035, [4] = 0.0012, [6] = -0.0035, [7] = -0.009, [8] = -0.018 }
+local CALIBRATION = { [1] = 0.018, [2] = 0.009, [3] = 0.0035, [4] = 0.003, [5] = 0, [6] = -0.0035, [7] = -0.009, [8] = -0.018 }
 
 function AutoGreen.calibrate(self: any, kind: string?, timing: number)
     local step = CALIBRATION[timing]
@@ -1448,7 +1446,7 @@ function AutoGreen.calibrate(self: any, kind: string?, timing: number)
     local store = learned()
     local key = "~" .. kind
     local current = if type(store[key]) == "number" then store[key] else 0
-    local next = math.clamp(current * 0.97 + step, -0.08, 0.08)
+    local next = math.clamp(current * 0.97 + step, -0.15, 0.15)
     store[key] = next
     Env.writeJson(PEAK_FILE, store)
     if self.Tracing then
