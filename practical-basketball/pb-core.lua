@@ -1364,8 +1364,9 @@ function AutoGreen.plan(self: any, now: number)
         return
     end
     local remaining = (peak - level) / speed
-    local greenOffset = if read("AutoReleaseOffset") ~= false then Court.ReleasePing * (read("PingComp") or 100) else (read("GreenOffset") or 0)
-    local delay = remaining - math.min(self.FrameDt or 0, 1 / 60) * 0.5 - SERVER_STEP * 0.5 - Court.Ping * (read("PingComp") or 100) / 100 + greenOffset / 1000 + (shot.Sloppy or 0) + self:bias(kind)
+    local pingComp = (read("PingComp") or 100) / 100
+    local autoOffset = if read("AutoReleaseOffset") ~= false then Court.ReleasePing * pingComp else (read("GreenOffset") or 0) / 1000
+    local delay = remaining - math.min(self.FrameDt or 0, 1 / 60) * 0.5 - SERVER_STEP * 0.5 - Court.Ping * pingComp + autoOffset + (shot.Sloppy or 0) + self:bias(kind)
     shot.Value = value
     shot.SampleAt = now
     shot.Speed = speed
