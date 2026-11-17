@@ -6508,15 +6508,15 @@ return function(JsavvUI: any, reload: () -> (), Loader: any): Map?
     end
 
     ui = JsavvUI.new({
-        Title = "jsavv: PB",
-        Subtitle = "basketball",
+        Title = "",
+        Subtitle = "",
         Version = Changelog.VERSION,
         Changelog = Changelog,
         Id = MENU_ID,
         Folder = "jsavv scripts/practicalbasketball",
         Logo = { Emblem = true },
-        Footer = "jsavv",
-        Discord = "https://discord.gg/jsavv",
+        Footer = "",
+        Discord = "",
         FirstRunInvite = true,
         Thanks = true,
         Width = 820,
