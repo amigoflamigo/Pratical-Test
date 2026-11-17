@@ -1367,6 +1367,14 @@ function AutoGreen.plan(self: any, now: number)
     local pingComp = (read("PingComp") or 100) / 100
     local autoOffset = if read("AutoReleaseOffset") ~= false then Court.ReleasePing * pingComp else (read("GreenOffset") or 0) / 1000
     local delay = remaining - math.min(self.FrameDt or 0, 1 / 60) * 0.5 - SERVER_STEP * 0.5 - Court.Ping * pingComp + autoOffset + (shot.Sloppy or 0) + self:bias(kind)
+    if self.Tracing then
+        self:trace(string.format(
+            "  plan ping=%.1fms releasePing=%.1fms serverStep=%.2fms frameDt=%.2fms remaining=%.1fms autoOffset=%.1fms bias=%.1fms delay=%.1fms",
+            Court.Ping * 1000, Court.ReleasePing * 1000, SERVER_STEP * 1000,
+            math.min(self.FrameDt or 0, 1/60) * 1000, remaining * 1000,
+            autoOffset * 1000, self:bias(kind) * 1000, delay * 1000
+        ))
+    end
     shot.Value = value
     shot.SampleAt = now
     shot.Speed = speed
