@@ -1437,13 +1437,26 @@ local CALIBRATION = { [1] = 0.018, [2] = 0.009, [3] = 0.0035, [4] = 0.0012, [6] 
 function AutoGreen.calibrate(self: any, kind: string?, timing: number)
     local step = CALIBRATION[timing]
     if not kind or kind == "" or not step or self.Read("AutoCalibrate") == false then
+        if self.Tracing then
+            self:trace(string.format(
+                "  CALIBRATE skip kind=%s timing=%d step=%s autoCalibrate=%s",
+                tostring(kind), timing, tostring(step), tostring(self.Read("AutoCalibrate"))
+            ))
+        end
         return
     end
     local store = learned()
     local key = "~" .. kind
     local current = if type(store[key]) == "number" then store[key] else 0
-    store[key] = math.clamp(current * 0.97 + step, -0.08, 0.08)
+    local next = math.clamp(current * 0.97 + step, -0.08, 0.08)
+    store[key] = next
     Env.writeJson(PEAK_FILE, store)
+    if self.Tracing then
+        self:trace(string.format(
+            "  CALIBRATE kind=%s timing=%d step=%.4f current=%.1fms -> next=%.1fms",
+            tostring(kind), timing, step, current * 1000, next * 1000
+        ))
+    end
 end
 
 function AutoGreen.resetCalibration(self: any)
