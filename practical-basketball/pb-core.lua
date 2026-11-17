@@ -836,7 +836,7 @@ local HOLD_TIMEOUT = 4.5
 local DUNK_TIMEOUT = 0.9
 local LAYUP_RANGE = 13
 local LOST_GRACE = 0.3
-local SERVER_STEP = 1 / 60
+local SERVER_STEP = 1 / 91
 local STALL = 0.075
 
 local METERED: { [string]: boolean } = { Shooting = true, Dunking = true, ContactLayup = true, ClutchLayup = true }
@@ -1054,6 +1054,14 @@ function AutoGreen.release(self: any)
     if not shot or shot.Fired then
         return
     end
+    -- Skip auto-release if ping is too jittery — a laggy shot will misfire anyway
+    if shot.Timed and getPingJitter() > JITTER_THRESHOLD then
+        shot.Fired = true
+        self:settle()
+        return
+    end
+    -- Snapshot meter value at fire for calibration feedback
+    shot.MeterAtFire = shot.Latest
     shot.Fired = true
     local character = self.Character
     if not character or not liveShot(character, character:GetAttribute("Action"), self.Meters) then
@@ -1336,10 +1344,7 @@ function AutoGreen.plan(self: any, now: number)
         return
     end
     local remaining = (peak - level) / speed
-    local realFrameDt = self.FrameDt or (1 / 60)
-    local pingSpike = math.max(0, Court.Ping - (Court.PingPrev or Court.Ping))
-    local pingBuffer = math.min(pingSpike * 0.5, 0.015)
-    local delay = remaining - realFrameDt * 0.5 - SERVER_STEP * 0.5 - Court.Ping * (read("PingComp") or 100) / 100 - pingBuffer + (read("GreenOffset") or 0) / 1000 + (shot.Sloppy or 0) + self:bias(kind)
+    local delay = remaining - math.min(self.FrameDt or 0, 1 / 60) * 0.5 - SERVER_STEP * 0.5 - Court.Ping * (read("PingComp") or 100) / 100 + (read("GreenOffset") or 0) / 1000 + (shot.Sloppy or 0) + self:bias(kind)
     shot.Value = value
     shot.SampleAt = now
     shot.Speed = speed
@@ -1422,10 +1427,14 @@ function AutoGreen.rated(self: any, timing: number)
     if mine and plan and plan.Clean and plan.Kind then
         self:calibrate(plan.Kind, timing)
     end
-    if shot and shot.Kind and timing == TIMING_PERFECT and not self:peak(shot.Kind) then
+    if shot and shot.Kind and timing == TIMING_PERFECT then
         local store = learned()
-        store[shot.Kind] = shot.Low
-        Env.writeJson(PEAK_FILE, store)
+        -- Refine peak using actual meter value at fire if available, else use low
+        local measuredPeak = shot.MeterAtFire or shot.Low
+        if not self:peak(shot.Kind) or (shot.MeterAtFire and math.abs(measuredPeak - (self:peak(shot.Kind) or 0)) < 0.05) then
+            store[shot.Kind] = measuredPeak
+            Env.writeJson(PEAK_FILE, store)
+        end
     end
     local record = self.Stats
     self.StatsText = nil
@@ -2419,6 +2428,9 @@ modules["config"] = function(...)
 local Config = {}
 
 Config.PEAKS = {
+    Shot = -0.98,
+    Layup = -0.95,
+    Dunk = -0.92,
     Bat = -0.99,
     Funnel2 = -0.985,
     Rocket = -0.91,
@@ -3133,6 +3145,17 @@ local PING_SMOOTH = 0.2
 
 local pingWindow: { number } = {}
 local PING_WINDOW = 6
+local JITTER_THRESHOLD = 0.015  -- 15ms jitter = skip auto-release that shot
+
+local function getPingJitter(): number
+    if #pingWindow < 4 then return 0 end
+    local avg = 0
+    for _, v in pingWindow do avg += v end
+    avg /= #pingWindow
+    local variance = 0
+    for _, v in pingWindow do variance += (v - avg) ^ 2 end
+    return math.sqrt(variance / #pingWindow)
+end
 
 local function samplePing(value: number)
     local clamped = math.min(value, 0.6)
@@ -3149,12 +3172,10 @@ local function samplePing(value: number)
     end
     low /= half
     if pingSeeded then
-        Court.PingPrev = Court.Ping
         Court.Ping += (low - Court.Ping) * PING_SMOOTH
     else
         pingSeeded = true
         Court.Ping = low
-        Court.PingPrev = low
     end
 end
 
@@ -3184,7 +3205,7 @@ local function updatePing(now: number)
     pingItem = nil
     local got, seconds = pcall(networkPing)
     if got and type(seconds) == "number" and seconds == seconds and seconds > 0 then
-        samplePing(seconds * 2)
+        samplePing(seconds)  -- GetNetworkPing() is already one-way, don't double it
     end
 end
 
@@ -6513,15 +6534,15 @@ return function(JsavvUI: any, reload: () -> (), Loader: any): Map?
     end
 
     ui = JsavvUI.new({
-        Title = "",
-        Subtitle = "",
+        Title = "jsavv: PB",
+        Subtitle = "basketball",
         Version = Changelog.VERSION,
         Changelog = Changelog,
         Id = MENU_ID,
         Folder = "jsavv scripts/practicalbasketball",
         Logo = { Emblem = true },
-        Footer = "",
-        Discord = "",
+        Footer = "jsavv",
+        Discord = "https://discord.gg/jsavv",
         FirstRunInvite = true,
         Thanks = true,
         Width = 820,
