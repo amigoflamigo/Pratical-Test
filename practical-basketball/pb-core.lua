@@ -1083,16 +1083,22 @@ function AutoGreen.release(self: any)
     -- Snapshot meter value at fire for calibration feedback
     shot.MeterAtFire = shot.Latest
     shot.Fired = true
+    local steady = (shot.Gap or 0) < STALL and (shot.LongFrame or 0) < STALL
+    local willBeClean = shot.ReleaseAt ~= nil and shot.Timed == true and shot.Sloppy == nil and steady
     if self.Tracing then
-        self:trace(string.format("  RELEASE kind=%s meterAtFire=%.4f low=%.4f peak=%.4f", tostring(shot.Kind), shot.Latest or 0, shot.Low or 0, shot.Peak or 0))
+        self:trace(string.format(
+            "  RELEASE kind=%s meterAtFire=%.4f low=%.4f peak=%.4f clean=%s gap=%.1fms longFrame=%.1fms bias=%.1fms",
+            tostring(shot.Kind), shot.Latest or 0, shot.Low or 0, shot.Peak or 0,
+            tostring(willBeClean), (shot.Gap or 0)*1000, (shot.LongFrame or 0)*1000,
+            self:bias(shot.Kind or "") * 1000
+        ))
     end
     local character = self.Character
     if not character or not liveShot(character, character:GetAttribute("Action"), self.Meters) then
         self:settle()
         return
     end
-    local steady = (shot.Gap or 0) < STALL and (shot.LongFrame or 0) < STALL
-    self.NextPlan = { Kind = shot.Kind, Clean = shot.ReleaseAt ~= nil and shot.Timed == true and shot.Sloppy == nil and steady }
+    self.NextPlan = { Kind = shot.Kind, Clean = willBeClean }
     self:send()
     if shot.NewRate and shot.Kind then
         local store = learned()
@@ -1375,10 +1381,10 @@ function AutoGreen.plan(self: any, now: number)
     if self.Tracing then
         local leadMs = (math.min(self.FrameDt or 0, 1/60) * 0.5 + SERVER_STEP + pingValue * pingComp) * 1000
         self:trace(string.format(
-            "  plan ping=%.1fms relPing=%.1fms autoRelease=%s serverStep=%.2fms frameDt=%.2fms remaining=%.1fms lead=%.1fms bias=%.1fms delay=%.1fms",
+            "  plan ping=%.1fms relPing=%.1fms autoRelease=%s serverStep=%.2fms frameDt=%.2fms remaining=%.1fms lead=%.1fms bias=%.1fms delay=%.1fms N=%d speed=%.4f/s",
             Court.Ping * 1000, Court.ReleasePing * 1000, tostring(autoRelease), SERVER_STEP * 1000,
             math.min(self.FrameDt or 0, 1/60) * 1000, remaining * 1000, leadMs,
-            self:bias(kind) * 1000, delay * 1000
+            self:bias(kind) * 1000, delay * 1000, shot.N or 0, speed
         ))
     end
     shot.Value = value
@@ -1462,6 +1468,15 @@ function AutoGreen.rated(self: any, timing: number)
     self.Planned = nil
     if mine and plan and plan.Clean and plan.Kind then
         self:calibrate(plan.Kind, timing)
+    end
+    if self.Tracing and mine then
+        self:trace(string.format(
+            "  RATED timing=%d (%s) kind=%s clean=%s bias=%.1fms",
+            timing, Config.TIMINGS[timing] or "?",
+            tostring(plan and plan.Kind or (shot and shot.Kind) or "?"),
+            tostring(plan and plan.Clean or false),
+            self:bias(plan and plan.Kind or (shot and shot.Kind) or "") * 1000
+        ))
     end
     if shot and shot.Kind and timing == TIMING_PERFECT then
         local store = learned()
