@@ -1432,7 +1432,7 @@ function AutoGreen.bias(self: any, kind: string): number
     return if type(value) == "number" then value else 0
 end
 
-local CALIBRATION = { [1] = 0.018, [2] = 0.009, [3] = 0.0035, [6] = -0.0035, [7] = -0.009, [8] = -0.018 }
+local CALIBRATION = { [1] = 0.018, [2] = 0.009, [3] = 0.0035, [4] = 0.0012, [6] = -0.0035, [7] = -0.009, [8] = -0.018 }
 
 function AutoGreen.calibrate(self: any, kind: string?, timing: number)
     local step = CALIBRATION[timing]
