@@ -1531,9 +1531,7 @@ function AutoGreen.step(self: any, now: number, dt: number)
     if self.PressPending then
         self.PressPending = false
         self:onPress()
-        if self.Press ~= nil then
-            self.HoldOk = true  -- user is manually holding, let auto green intercept the release
-        elseif self.Held ~= nil then
+        if self.Held ~= nil and self.Press ~= nil and self.HoldOk ~= true then
             self:send()
         end
     end
