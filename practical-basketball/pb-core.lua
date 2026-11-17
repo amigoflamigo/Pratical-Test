@@ -1371,12 +1371,13 @@ function AutoGreen.plan(self: any, now: number)
     local pingComp = if autoRelease then 1 else (read("PingComp") or 100) / 100
     local manualOffset = if autoRelease then 0 else (read("GreenOffset") or 0) / 1000
     local pingValue = if autoRelease then Court.ReleasePing else Court.Ping
-    local delay = remaining - math.min(self.FrameDt or 0, 1 / 60) * 0.5 - SERVER_STEP * 0.5 - pingValue * pingComp + manualOffset + (shot.Sloppy or 0) + self:bias(kind)
+    local delay = remaining - math.min(self.FrameDt or 0, 1 / 60) * 0.5 - SERVER_STEP - pingValue * pingComp + manualOffset + (shot.Sloppy or 0) + self:bias(kind)
     if self.Tracing then
+        local leadMs = (math.min(self.FrameDt or 0, 1/60) * 0.5 + SERVER_STEP + pingValue * pingComp) * 1000
         self:trace(string.format(
-            "  plan ping=%.1fms relPing=%.1fms autoRelease=%s serverStep=%.2fms frameDt=%.2fms remaining=%.1fms bias=%.1fms delay=%.1fms",
+            "  plan ping=%.1fms relPing=%.1fms autoRelease=%s serverStep=%.2fms frameDt=%.2fms remaining=%.1fms lead=%.1fms bias=%.1fms delay=%.1fms",
             Court.Ping * 1000, Court.ReleasePing * 1000, tostring(autoRelease), SERVER_STEP * 1000,
-            math.min(self.FrameDt or 0, 1/60) * 1000, remaining * 1000,
+            math.min(self.FrameDt or 0, 1/60) * 1000, remaining * 1000, leadMs,
             self:bias(kind) * 1000, delay * 1000
         ))
     end
@@ -1391,7 +1392,7 @@ function AutoGreen.plan(self: any, now: number)
     shot.ReleaseAt = now + delay
     if delay <= 0 then
         self:release()
-    elseif delay < 0.03 and trusted then
+    elseif delay < 0.012 and trusted then
         shot.Frozen = true
     end
 end
