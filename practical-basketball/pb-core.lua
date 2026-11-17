@@ -1364,7 +1364,7 @@ function AutoGreen.plan(self: any, now: number)
         return
     end
     local remaining = (peak - level) / speed
-    local greenOffset = if read("AutoReleaseOffset") ~= false then Court.Ping * 1000 else (read("GreenOffset") or 0)
+    local greenOffset = if read("AutoReleaseOffset") ~= false then Court.ReleasePing * 1000 else (read("GreenOffset") or 0)
     local delay = remaining - math.min(self.FrameDt or 0, 1 / 60) * 0.5 - SERVER_STEP * 0.5 - Court.Ping * (read("PingComp") or 100) / 100 + greenOffset / 1000 + (shot.Sloppy or 0) + self:bias(kind)
     shot.Value = value
     shot.SampleAt = now
@@ -2934,6 +2934,8 @@ Court.Carry = {} :: { boolean }
 Court.TeamBall = false
 Court.FoeBall = false
 Court.Ping = 0.08
+Court.RawPing = 0.08
+Court.ReleasePing = 0.08
 Court.Sending = 0
 Court.Held = false
 Court.Keys = false
@@ -3169,17 +3171,32 @@ local PING_SMOOTH_UP   = 0.45  -- fast rise: react quickly when ping increases
 local pingWindow: { number } = {}
 local PING_WINDOW = 10  -- wider window for a stable median baseline
 
+local releasePingWindow: { number } = {}
+local RELEASE_PING_WINDOW = 3  -- last 3 samples (~300ms) for release timing
+
 local function samplePing(value: number)
     local clamped = math.min(value, 0.6)
+    Court.RawPing = clamped
+
+    -- release ping: short 3-sample window, take the max (spike-biased for safety)
+    table.insert(releasePingWindow, clamped)
+    if #releasePingWindow > RELEASE_PING_WINDOW then
+        table.remove(releasePingWindow, 1)
+    end
+    local releasePeak = 0
+    for _, v in releasePingWindow do
+        if v > releasePeak then releasePeak = v end
+    end
+    Court.ReleasePing = releasePeak  -- fast, spike-biased — used for auto release offset
+
+    -- smoothed ping: stable baseline for everything else
     table.insert(pingWindow, clamped)
     if #pingWindow > PING_WINDOW then
         table.remove(pingWindow, 1)
     end
-    -- median of the window as the baseline (robust to spikes)
     local sorted = table.clone(pingWindow)
     table.sort(sorted)
     local median = sorted[math.floor(#sorted / 2) + 1]
-    -- use current raw sample if it's higher than the median — catch spikes immediately
     local target = math.max(median, clamped)
     if pingSeeded then
         local smooth = if target > Court.Ping then PING_SMOOTH_UP else PING_SMOOTH_DOWN
@@ -3187,6 +3204,7 @@ local function samplePing(value: number)
     else
         pingSeeded = true
         Court.Ping = target
+        Court.ReleasePing = clamped
     end
 end
 
