@@ -1054,12 +1054,6 @@ function AutoGreen.release(self: any)
     if not shot or shot.Fired then
         return
     end
-    -- Skip auto-release if ping is too jittery — a laggy shot will misfire anyway
-    if shot.Timed and getPingJitter() > JITTER_THRESHOLD then
-        shot.Fired = true
-        self:settle()
-        return
-    end
     -- Snapshot meter value at fire for calibration feedback
     shot.MeterAtFire = shot.Latest
     shot.Fired = true
@@ -1537,7 +1531,9 @@ function AutoGreen.step(self: any, now: number, dt: number)
     if self.PressPending then
         self.PressPending = false
         self:onPress()
-        if self.Held ~= nil and self.Press ~= nil and self.HoldOk ~= true then
+        if self.Press ~= nil then
+            self.HoldOk = true  -- user is manually holding, let auto green intercept the release
+        elseif self.Held ~= nil then
             self:send()
         end
     end
@@ -3145,17 +3141,6 @@ local PING_SMOOTH = 0.2
 
 local pingWindow: { number } = {}
 local PING_WINDOW = 6
-local JITTER_THRESHOLD = 0.015  -- 15ms jitter = skip auto-release that shot
-
-local function getPingJitter(): number
-    if #pingWindow < 4 then return 0 end
-    local avg = 0
-    for _, v in pingWindow do avg += v end
-    avg /= #pingWindow
-    local variance = 0
-    for _, v in pingWindow do variance += (v - avg) ^ 2 end
-    return math.sqrt(variance / #pingWindow)
-end
 
 local function samplePing(value: number)
     local clamped = math.min(value, 0.6)
