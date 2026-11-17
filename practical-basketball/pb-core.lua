@@ -836,7 +836,7 @@ local HOLD_TIMEOUT = 4.5
 local DUNK_TIMEOUT = 0.9
 local LAYUP_RANGE = 13
 local LOST_GRACE = 0.3
-local SERVER_STEP = 1 / 91
+local SERVER_STEP = 1 / 60
 local _serverStepSamples: { number } = {}
 local _serverStepLast: number? = nil
 local _serverStepReady = false
@@ -1083,6 +1083,9 @@ function AutoGreen.release(self: any)
     -- Snapshot meter value at fire for calibration feedback
     shot.MeterAtFire = shot.Latest
     shot.Fired = true
+    if self.Tracing then
+        self:trace(string.format("  RELEASE kind=%s meterAtFire=%.4f low=%.4f peak=%.4f", tostring(shot.Kind), shot.Latest or 0, shot.Low or 0, shot.Peak or 0))
+    end
     local character = self.Character
     if not character or not liveShot(character, character:GetAttribute("Action"), self.Meters) then
         self:settle()
@@ -1364,15 +1367,16 @@ function AutoGreen.plan(self: any, now: number)
         return
     end
     local remaining = (peak - level) / speed
-    local pingComp = (read("PingComp") or 100) / 100
-    local autoOffset = if read("AutoReleaseOffset") ~= false then Court.ReleasePing * pingComp else (read("GreenOffset") or 0) / 1000
-    local delay = remaining - math.min(self.FrameDt or 0, 1 / 60) * 0.5 - SERVER_STEP * 0.5 - Court.Ping * pingComp + autoOffset + (shot.Sloppy or 0) + self:bias(kind)
+    local autoRelease = read("AutoReleaseOffset") ~= false
+    local pingComp = if autoRelease then 0 else (read("PingComp") or 100) / 100
+    local manualOffset = if autoRelease then 0 else (read("GreenOffset") or 0) / 1000
+    local delay = remaining - math.min(self.FrameDt or 0, 1 / 60) * 0.5 - SERVER_STEP * 0.5 - Court.Ping * pingComp + manualOffset + (shot.Sloppy or 0) + self:bias(kind)
     if self.Tracing then
         self:trace(string.format(
-            "  plan ping=%.1fms releasePing=%.1fms serverStep=%.2fms frameDt=%.2fms remaining=%.1fms autoOffset=%.1fms bias=%.1fms delay=%.1fms",
-            Court.Ping * 1000, Court.ReleasePing * 1000, SERVER_STEP * 1000,
+            "  plan ping=%.1fms autoRelease=%s serverStep=%.2fms frameDt=%.2fms remaining=%.1fms bias=%.1fms delay=%.1fms",
+            Court.Ping * 1000, tostring(autoRelease), SERVER_STEP * 1000,
             math.min(self.FrameDt or 0, 1/60) * 1000, remaining * 1000,
-            autoOffset * 1000, self:bias(kind) * 1000, delay * 1000
+            self:bias(kind) * 1000, delay * 1000
         ))
     end
     shot.Value = value
